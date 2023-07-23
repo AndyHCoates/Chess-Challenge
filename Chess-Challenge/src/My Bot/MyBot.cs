@@ -1,57 +1,145 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection.Metadata.Ecma335;
+using System.Runtime.CompilerServices;
 using ChessChallenge.API;
-using ChessChallenge.Chess;
-using Board = ChessChallenge.API.Board;
-using Move = ChessChallenge.API.Move;
+
+public class ResultMove
+{
+    public Move NextMove { get; set; }
+    public float Score { get; set; }
+    public Board LastBoard { get; set; }
+    public int Level { get; set; }
+    public ResultMove ParentMove { get; set; }
+}
 
 public class MyBot : IChessBot
 {
-    const int maxLevel = 0;
+    private const int maxLevel = 4;
+    private List<ResultMove> _results = new();
+    private Random _rnd = new(0);
+    private ResultMove rootMove;
 
     public Move Think(Board board, Timer timer)
     {
-        return GetBestMove(board, timer);
+        _results.Clear();
+
+        rootMove = new ResultMove
+        {
+            NextMove = new Move(),
+            Score = 0,
+            LastBoard = board,
+            Level = -1
+        };
+        GetBestMove(board, timer, rootMove);
+
+
+
+        var level = maxLevel;
+        ResultMove? bestResult;
+
+        bestResult = GetBestResultMove(level, true);
+
+        while (bestResult == null)
+        {
+            level -= 2;
+            bestResult = GetBestResultMove(level, true);
+        }
+
+        while (level > 0)
+        {
+            Console.Write($"{bestResult.NextMove} ");
+            bestResult = bestResult.ParentMove;
+            level--;
+        }
+
+        Console.WriteLine($"{bestResult.NextMove} ");
+
+        return bestResult.NextMove;
+
+
     }
 
-    private Move GetBestMove(Board board, Timer timer, int level = 0)
+    private ResultMove? GetBestResultMove(int level, bool isMax)
     {
-        Move[] moves = board.GetLegalMoves();
-        var boardString = board.GetFenString();
-        Move bestMove = new Move();
-        var bestScore = -10000f;
+        if (_results.All(r => r.Level != level))
+            return null;
 
+        float bestScore;
 
-        foreach (var move in moves)
+        if (isMax)
         {
-            if (level < maxLevel)
+            bestScore = (from r in _results
+                where r.Level == level
+                select r.Score).Max();
+        }
+        else
+        {
+            bestScore = (from r in _results
+                where r.Level == level
+                select r.Score).Min();
+        }
+
+        //Console.Write($"{bestScore} ");
+
+        var bestMoves = (from r in _results
+            where r.Level == level && r.Score == bestScore
+            select r).ToList();
+
+        var bestMoveIndex = _rnd.Next(bestMoves.Count);
+        var bestResult = bestMoves[bestMoveIndex];
+        return bestResult;
+    }
+
+    private void GetBestMove(Board board, Timer timer, ResultMove parentMove, int level = 0)
+    {
+        var moves = board.GetLegalMoves();
+        var boardString = board.GetFenString();
+
+        if (level <= maxLevel)
+        {
+            foreach (var move in moves)
             {
-                var testBoard = Board.CreateBoardFromFEN(boardString);
-                testBoard.MakeMove(move);
-                bestMove = GetBestMove(testBoard, timer, level + 1);
-            }
-            else
-            {
+
                 var testBoard = Board.CreateBoardFromFEN(boardString);
                 testBoard.MakeMove(move);
                 var score = ScoreBoard(testBoard);
-                Console.Write($"{score} ");
-                if (score > bestScore)
+
+                //Console.Write($"{score} ");
+
+                var testMove = new ResultMove
                 {
-                    bestScore = score;
-                    bestMove = move;
-                }
+                    NextMove = move,
+                    Score = score,
+                    LastBoard = testBoard,
+                    Level = level,
+                    ParentMove = parentMove
+                };
+                _results.Add(testMove);
+
+
+                if (level % 2 == 0)
+                    GetBestMove(testBoard, timer, testMove, level + 1);
+            }
+
+            if (level % 2 == 1)
+            {
+                var bestResult = GetBestResultMove(level, false);
+                if(bestResult != null)
+                    GetBestMove(bestResult.LastBoard, timer, bestResult, level + 1);
             }
         }
-        Console.WriteLine($"Best Score: {bestScore}");
-        return bestMove;
+        else
+        {
+
+        }
     }
 
     private float ScoreBoard(Board board)
     {
-        var score = 0.0f;
         var pieces = board.WhitePiecesBitboard;
-        score = ScorePieces(board, pieces);
+        var score = ScorePieces(board, pieces);
 
         pieces = board.BlackPiecesBitboard;
         score -= ScorePieces(board, pieces);
@@ -59,6 +147,8 @@ public class MyBot : IChessBot
         if (board.IsWhiteToMove)
             score = -score;
 
+        if(board.IsInCheckmate())
+            score += 1000;
 
         return score;
     }
