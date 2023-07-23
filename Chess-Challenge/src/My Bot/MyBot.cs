@@ -130,10 +130,6 @@ public class MyBot : IChessBot
                     GetBestMove(bestResult.LastBoard, timer, bestResult, level + 1);
             }
         }
-        else
-        {
-
-        }
     }
 
     private float ScoreBoard(Board board)
